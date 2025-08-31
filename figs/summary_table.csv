@@ -1,0 +1,2 @@
+Period,"Corr(SPX,AAPL)",Beta(AAPL~SPX),SPX Golden/Dead,AAPL Golden/Dead,SPX MA20 slope,AAPL MA20 slope,SPX MaxDD,AAPL MaxDD
+2025-07-31 ~ 2025-08-29,0.595,1.45,0/0,8/8,9.618,0.3831,-0.016,-0.334
