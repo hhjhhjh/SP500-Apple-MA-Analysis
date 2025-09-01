@@ -1,4 +1,3 @@
-# 파일명: 황정현HW1.py
 # 허용 패키지: numpy, pandas, matplotlib, seaborn(옵션), mplfinance(옵션), SciPy, 표준라이브러리
 import os
 import numpy as np
@@ -6,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats
 
-# (옵션) 캔들차트
+# 캔들차트
 try:
     import mplfinance as mpf
     HAS_MPLFINANCE = True
@@ -24,6 +23,7 @@ os.makedirs(OUT_DIR, exist_ok=True)
 def load_investing_csv(path):
     # CSV 읽기
     df = pd.read_csv(path, encoding="utf-8-sig")
+
     # Date 파싱 및 정렬
     if "Date" not in df.columns:
         raise ValueError(f"'Date' column not found in {path}")
@@ -38,13 +38,13 @@ def load_investing_csv(path):
                              .str.replace("%", "", regex=False))
     df["Adj Close"] = pd.to_numeric(df["Price"], errors="coerce")
 
-    # O/H/L도 숫자화(있으면)
+    # O/H/L/Close 숫자화(있으면)
     for col in ["Open", "High", "Low", "Close"]:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "", regex=False),
-                                    errors="coerce")
+            s = df[col].astype(str).str.replace(",", "", regex=False).str.replace("%", "", regex=False)
+            df[col] = pd.to_numeric(s, errors="coerce")
 
-    # 거래량이 'K','M' 등 문자열일 수 있어서 필요시 변환(분석엔 필수 아님)
+    # 거래량 'K','M','B' 처리(있으면)
     if "Vol." in df.columns:
         v = df["Vol."].astype(str).str.replace(",", "", regex=False).str.upper()
         mult = np.where(v.str.endswith("K"), 1e3,
@@ -58,6 +58,11 @@ def load_investing_csv(path):
 
     # 결측 제거
     df = df.dropna(subset=["Adj Close"])
+
+    # === 캔들차트 호환: Close가 없으면 Adj Close로 대체 ===
+    if "Close" not in df.columns and "Adj Close" in df.columns:
+        df["Close"] = df["Adj Close"]
+
     return df
 
 # === 피처 추가 ===
@@ -138,20 +143,36 @@ def plot_drawdown_vol(df, title, fname):
     plt.close(fig)
 
 def maybe_candle_chart(df, title, fname):
+    """OHLC가 충분하면 캔들차트 저장 후 True, 아니면 False 반환"""
     if not HAS_MPLFINANCE:
-        return
+        return False
     needed = {"Open","High","Low","Close"}
     if not needed.issubset(df.columns):
-        return
-    c = df[["Open","High","Low","Close"]].dropna().copy()
-    ap = [
-        mpf.make_addplot(df["MA5"],  color="b"),
-        mpf.make_addplot(df["MA20"], color="g"),
-        mpf.make_addplot(df["MA60"], color="r"),
-    ]
-    mpf.plot(c, type="candle", addplot=ap, title=title, style="yahoo",
-             savefig=os.path.join(OUT_DIR, fname))
-    # mplfinance는 자체적으로 저장/표시 처리 (SHOW_FIGS는 생략)
+        return False
+
+    # OHLC 프레임(숫자/결측 정리)
+    c = df[["Open","High","Low","Close"]].copy()
+    c = c.apply(pd.to_numeric, errors="coerce").dropna()
+    if c.empty:
+        return False
+
+    # 유효값(비-NaN)이 1개 이상 있는 MA만 추가 (빈 시리즈 방어)
+    ap = []
+    for ma_col, color in [("MA5","b"), ("MA20","g"), ("MA60","r")]:
+        if ma_col in df.columns:
+            s = df[ma_col].reindex(c.index)
+            if s.notna().sum() > 0:
+                ap.append(mpf.make_addplot(s, color=color))
+
+    save_path = os.path.join(OUT_DIR, fname)
+    if SHOW_FIGS:
+        mpf.plot(c, type="candle", addplot=ap, title=title, style="yahoo",
+                 savefig=save_path)
+    else:
+        fig, _ = mpf.plot(c, type="candle", addplot=ap, title=title, style="yahoo",
+                          savefig=save_path, returnfig=True)
+        plt.close(fig)
+    return True
 
 def main():
     spx  = add_features(load_investing_csv(SP500_CSV))
@@ -180,8 +201,9 @@ def main():
     plot_beta(ret, beta, intercept, "beta_scatter.png")
     plot_drawdown_vol(spx,  "S&P 500: Drawdown & 20d Vol", "spx_dd_vol.png")
     plot_drawdown_vol(aapl, "Apple: Drawdown & 20d Vol",   "aapl_dd_vol.png")
-    maybe_candle_chart(spx,  "S&P 500 Candlestick (with MAs)", "spx_candle.png")
-    maybe_candle_chart(aapl, "AAPL Candlestick (with MAs)",    "aapl_candle.png")
+
+    spx_candle_ok  = maybe_candle_chart(spx,  "S&P 500 Candlestick (with MAs)", "spx_candle.png")
+    aapl_candle_ok = maybe_candle_chart(aapl, "AAPL Candlestick (with MAs)",    "aapl_candle.png")
 
     # 요약 저장
     lines = [
@@ -201,9 +223,13 @@ def main():
 
     pd.DataFrame([metrics]).to_csv(os.path.join(OUT_DIR, "summary_table.csv"), index=False)
 
+    # 실제 저장된 파일 목록 표시
+    saved = ["spx_ma.png", "aapl_ma.png", "beta_scatter.png", "spx_dd_vol.png", "aapl_dd_vol.png"]
+    if spx_candle_ok:  saved.append("spx_candle.png")
+    if aapl_candle_ok: saved.append("aapl_candle.png")
+
     print("\n".join(lines))
-    print(f"\n[Saved figures] {os.path.abspath(OUT_DIR)}  "
-          f"-> spx_ma.png, aapl_ma.png, beta_scatter.png, spx_dd_vol.png, aapl_dd_vol.png")
+    print(f"\n[Saved figures] {os.path.abspath(OUT_DIR)} -> " + ", ".join(saved))
 
 if __name__ == "__main__":
     main()
