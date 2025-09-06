@@ -10,8 +10,8 @@ try:
 except Exception:
     HAS_MPLFINANCE = False
 
-SP500_CSV = "data/S&P 500 Historical Data.csv"      
-AAPL_CSV  = "data/Apple Stock Price History.csv"    
+SP500_CSV = "data/S&P 500 Historical Data.csv"
+AAPL_CSV  = "data/Apple Stock Price History.csv"
 OUT_DIR   = "figs"
 SHOW_FIGS = True
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -53,11 +53,12 @@ def load_investing_csv(path):
 
 def add_features(df):
     px = df["Adj Close"]
-    df["MA5"]  = px.rolling(5).mean()
-    df["MA20"] = px.rolling(20).mean()
-    df["MA60"] = px.rolling(60).mean()
-    df["Ret"]  = px.pct_change()
-    df["Vol20"] = df["Ret"].rolling(20).std() * np.sqrt(252)  
+    df["MA5"]   = px.rolling(5).mean()
+    df["MA20"]  = px.rolling(20).mean()
+    df["MA60"]  = px.rolling(60).mean()
+    df["Ret"]   = px.pct_change()
+    df["LogRet"] = np.log(px / px.shift(1))             
+    df["Vol20"] = df["LogRet"].rolling(20).std() * np.sqrt(252)
     cummax = px.cummax()
     df["Drawdown"] = px / cummax - 1.0
     return df
@@ -84,11 +85,10 @@ def ma_slope(series, lookback=60):
 
 def plot_price_ma(df, title, fname):
     plt.figure(figsize=(11,6))
-
     plt.plot(df.index, df["Adj Close"], color="#666666", label="Adj Close", alpha=0.9)
-    plt.plot(df.index, df["MA5"],  label="MA5 (Short-term)",  linewidth=1.8, color="tab:blue")
+    plt.plot(df.index, df["MA5"],  label="MA5 (Short-term)",   linewidth=1.8, color="tab:blue")
     plt.plot(df.index, df["MA20"], label="MA20 (Medium-term)", linewidth=1.8, color="tab:green")
-    plt.plot(df.index, df["MA60"], label="MA60 (Long-term)", linewidth=1.8, color="tab:red")
+    plt.plot(df.index, df["MA60"], label="MA60 (Long-term)",   linewidth=1.8, color="tab:red")
 
     golden, dead = find_crossovers(df)
     plt.scatter(golden, df.loc[golden, "Adj Close"], marker="^", s=55,
@@ -96,8 +96,7 @@ def plot_price_ma(df, title, fname):
     plt.scatter(dead,   df.loc[dead,   "Adj Close"], marker="v", s=55,
                 label="Dead Cross",   color="tab:orange", zorder=3)
 
-    plt.title(title)
-    plt.xlabel("Date"); plt.ylabel("Price")
+    plt.title(title); plt.xlabel("Date"); plt.ylabel("Price")
     leg = plt.legend(title="Moving Averages & Crossovers")
     if leg: leg._legend_box.align = "left"
     plt.grid(True); plt.tight_layout()
@@ -133,10 +132,7 @@ def plot_drawdown_vol(df, title, fname):
     ax2.set_ylabel("Volatility", color=c2)
     ax2.tick_params(axis="y", labelcolor=c2)
 
-    lines = [l1, l2]
-    labels = [ln.get_label() for ln in lines]
-    ax1.legend(lines, labels, loc="upper right")
-
+    ax1.legend([l1, l2], [l1.get_label(), l2.get_label()], loc="upper right")
     fig.suptitle(title)
     ax1.grid(True); fig.tight_layout()
     fig.savefig(os.path.join(OUT_DIR, fname), dpi=200)
@@ -168,14 +164,11 @@ def maybe_candle_chart(df, title, fname):
     )
 
     ax = axlist[0]
-
     ax.plot([], [], color="green", label="Bullish candle")
     ax.plot([], [], color="red",   label="Bearish candle")
-
     ax.plot([], [], color="tab:blue",  label="MA5 (Short-term)")
     ax.plot([], [], color="tab:green", label="MA20 (Medium-term)")
     ax.plot([], [], color="tab:red",   label="MA60 (Long-term)")
-
     ax.legend(loc="upper left", frameon=True, title="Legend")
 
     if SHOW_FIGS: plt.show()
@@ -186,14 +179,14 @@ def main():
     spx  = add_features(load_investing_csv(SP500_CSV))
     aapl = add_features(load_investing_csv(AAPL_CSV))
 
-    beta, intercept, r, p, ret = beta_and_corr(spx["Ret"], aapl["Ret"])
+    beta, intercept, r, p, ret = beta_and_corr(spx["LogRet"], aapl["LogRet"])
 
     spx_g, spx_d = find_crossovers(spx)
     a_g, a_d = find_crossovers(aapl)
     metrics = {
         "Period": f"{spx.index.min().date()} ~ {spx.index.max().date()}",
-        "Corr(SPX,AAPL)": round(ret["SPX"].corr(ret["AAPL"]), 3),
-        "Beta(AAPL~SPX)": round(beta, 2),
+        "Corr(SPX,AAPL)": round(ret["SPX"].corr(ret["AAPL"]), 3), 
+        "Beta(AAPL~SPX)": round(beta, 2),                          
         "SPX Golden/Dead": f"{len(spx_g)}/{len(spx_d)}",
         "AAPL Golden/Dead": f"{len(a_g)}/{len(a_d)}",
         "SPX MA20 slope": round(ma_slope(spx["MA20"]), 6),
@@ -209,7 +202,7 @@ def main():
     plot_drawdown_vol(aapl, "Apple: Drawdown & 20d Volatility",   "aapl_dd_vol.png")
 
     spx_candle_ok  = maybe_candle_chart(spx,  "S&P 500 Candlestick (with MAs)", "spx_candle.png")
-    aapl_candle_ok = maybe_candle_chart(aapl, "Apple Candlestick (with MAs)",    "aapl_candle.png")
+    aapl_candle_ok = maybe_candle_chart(aapl, "Apple Candlestick (with MAs)",   "aapl_candle.png")
 
     lines = [
         "=== Summary (S&P 500 + Apple) ===",
@@ -228,7 +221,7 @@ def main():
 
     pd.DataFrame([metrics]).to_csv(os.path.join(OUT_DIR, "summary_table.csv"), index=False)
 
-    saved = ["spx_ma.png", "aapl_ma.png", "beta_scatter.png", "spx_dd_vol.png", "aapl_dd_vol.png", "aapl_candle.png", "spx_candle.png"]
+    saved = ["spx_ma.png", "aapl_ma.png", "beta_scatter.png", "spx_dd_vol.png", "aapl_dd_vol.png"]
     if spx_candle_ok:  saved.append("spx_candle.png")
     if aapl_candle_ok: saved.append("aapl_candle.png")
 

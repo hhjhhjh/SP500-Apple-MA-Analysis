@@ -1,7 +1,7 @@
 === Summary (S&P 500 + Apple) ===
 Period: 2024-09-03 ~ 2025-08-29
-Corr(SPX,AAPL): 0.757
-Beta(AAPL~SPX): 1.28
+Corr(SPX,AAPL): 0.753
+Beta(AAPL~SPX): 1.27
 SPX Golden/Dead: 5/5
 AAPL Golden/Dead: 8/8
 SPX MA20 slope (per day): 9.681345
